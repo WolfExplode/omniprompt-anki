@@ -1,9 +1,10 @@
 {
   "_version": 1.1,
   "AI_PROVIDER": "openai",
-  "OPENAI_API_KEY": "",
-  "DEEPSEEK_API_KEY": "",
-  "API_ENDPOINT": "api.openai.com",
+  "API_KEYS": {
+    "openai": "",
+    "deepseek": ""
+  },
   "OPENAI_MODEL": "gpt-4o-mini",
   "DEEPSEEK_MODEL": "deepseek-chat",
   "TEMPERATURE": 0.2,
@@ -12,8 +13,8 @@
   "TIMEOUT": 20,
   "PROMPT": "Paste your prompt here.",
   "SELECTED_FIELDS": {
-      "output_field": "Output"
+    "output_field": "Output"
   },
-
-  "DEEPSEEK_STREAM": False
+  "DEEPSEEK_STREAM": false,
+  "APPEND_OUTPUT": false
 }
