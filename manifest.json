@@ -1,15 +1,14 @@
 {
-    "name": "OmniPrompt-Anki",
-    "version": "1.1.2",
-    "description": "Your AI Anki assistant! OmniPrompt-Anki enhances your flashcards with AI-powered generation. Supports both OpenAI and DeepSeek providers.",
-    "author": "Stanislav Amosov",
-    "min_point_version": "24.11",
-    "max_point_version": "",
-    "addon_id": "omniprompt-anki",
-    "repository": {
-      "type": "git",
-      "url": "https://github.com/stanamosov/omniprompt-anki"
-    },
-    "dependencies": {}
-  }
-  
+  "name": "OmniPrompt-Anki",
+  "version": "1.1.2",
+  "description": "Your AI Anki assistant! OmniPrompt-Anki enhances your flashcards with AI-powered generation. Supports both OpenAI and DeepSeek providers.",
+  "author": "Stanislav Amosov",
+  "min_point_version": "24.11",
+  "max_point_version": "",
+  "addon_id": "omniprompt-anki",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/stanamosov/omniprompt-anki"
+  },
+  "dependencies": {}
+}

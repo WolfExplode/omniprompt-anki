@@ -1,5 +1,5 @@
 # OmniPrompt Anki 
-## v1.1.2
+## v1.1.3
 [![OpenAI](https://img.shields.io/badge/OpenAI-%2312100E.svg?style=flat&logo=openai&logoColor=white)](https://openai.com)
 [![DeepSeek](https://img.shields.io/badge/DeepSeek-4B9CD3.svg?style=flat&logo=deepl&logoColor=white)](https://deepseek.com)
 
@@ -181,13 +181,13 @@ To make debugging easier, the add-on includes a **View Log** button in the **Set
 - [x] Enhanced UI for multi-note processing.
 - [x] Keyboard shortcuts.
 - [x] Advanced settings.
+- [x] Keeping the Browse window accessible when updating with OmniPrompt.
+- [x] Storing API keys separately for each model.
+- [x] Saving the output field selection together with the prompt template and title.
+- [x] Improving search behavior in the Saved Prompts box with better autocomplete and multi-instance selection.
+- [x] Adding an "Append" option for the Output Field to allow content to be added instead of replaced.
 
 ### **🚀 Planned**
-- [ ] Keeping the Browse window accessible when updating with OmniPrompt.
-- [ ] Storing API keys separately for each model.
-- [ ] Saving the output field selection together with the prompt template and title.
-- [ ] Improving search behavior in the Saved Prompts box with better autocomplete and multi-instance selection.
-- [ ] Adding an "Append" option for the Output Field to allow content to be added instead of replaced.
 - [ ] Support for more AI models.
 
 ---

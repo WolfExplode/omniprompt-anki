@@ -309,7 +309,10 @@ class OmniPromptManager:
         try:
             validated = self.validate_config(self.config)
             migrated = self.migrate_config(validated)
+            logger.debug(f"Saving config: { {k: v for k, v in migrated.items() if k != 'API_KEYS'} }")
+            logger.debug(f"API_KEYS present: {'openai' in migrated.get('API_KEYS', {})}")
             mw.addonManager.writeConfig(__name__, migrated)
+            logger.info("Config saved successfully")
         except Exception as e:
             logger.exception(f"Config save failed: {str(e)}")
             pass
@@ -759,8 +762,22 @@ class UpdateOmniPromptDialog(QDialog):
         sc.activated.connect(self.start_processing)
 
     def on_append_checkbox_changed(self, state: int):
-        self.manager.config["APPEND_OUTPUT"] = (state == Qt.CheckState.Checked)
-        self.manager.save_config()
+        logger.info(f"on_append_checkbox_changed start: state={state}")
+        # Properly handle Qt.CheckState (0=Unchecked, 2=Checked)
+        is_checked = bool(state)  # Convert Qt.CheckState to boolean
+        logger.info(f"is_checked = {is_checked}")
+        self.manager.config["APPEND_OUTPUT"] = is_checked
+        logger.info(f"post-assign, config[APPEND_OUTPUT]={self.manager.config['APPEND_OUTPUT']}")
+        try:
+            self.manager.save_config()
+            # Verify config was saved by reloading
+            reloaded_config = self.manager.load_config()
+            logger.info(f"Reloaded config APPEND_OUTPUT={reloaded_config.get('APPEND_OUTPUT')}")
+            # Update checkbox to match saved state
+            self.append_checkbox.setChecked(bool(reloaded_config.get("APPEND_OUTPUT", False)))
+        except Exception as e:
+            logger.exception("Failed to save/reload config:")
+        logger.info(f"done saving config")
 
     def load_prompts(self):
         prompts = load_prompt_templates()
@@ -862,13 +879,16 @@ class UpdateOmniPromptDialog(QDialog):
                 # 100%
                 self.table.item(row, 0).setText("100%")
                 
-                if self.manager.config.get("APPEND_OUTPUT", False):
+                append_mode = self.manager.config.get("APPEND_OUTPUT", False)
+                logger.info(f"Processing note {note.id} in {'append' if append_mode else 'replace'} mode")
+                
+                if append_mode:
                     existing_text = self.table.item(row, 2).text()
-                    new_table_text = existing_text + "\n" + explanation if existing_text else explanation
+                    new_table_text = existing_text + "\n\n" + explanation if existing_text else explanation
                     self.table.item(row, 2).setText(new_table_text)
 
                     original_field_text = note[output_field]
-                    new_field_text = original_field_text + "\n" + explanation if original_field_text else explanation
+                    new_field_text = original_field_text + "\n\n" + explanation if original_field_text else explanation
                     note[output_field] = new_field_text
                 else:
                     self.table.item(row, 2).setText(explanation)
@@ -876,6 +896,7 @@ class UpdateOmniPromptDialog(QDialog):
 
                 try:
                     mw.col.update_note(note)
+                    logger.info(f"Successfully updated note {note.id}")
                 except Exception as e:
                     logger.exception(f"Error updating note {note.id}: {e}")
                 break
