@@ -23,7 +23,8 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QGroupBox, QComboBox, QLabel,
     QLineEdit, QFormLayout, QPushButton, QTextEdit, QHBoxLayout,
-    QWidget, QTableWidget, QTableWidgetItem, QMenu, QCheckBox, QCompleter
+    QWidget, QTableWidget, QTableWidgetItem, QMenu, QCheckBox, QCompleter,
+    QListWidget, QMessageBox, QSplitter
 )
 from aqt import mw, gui_hooks
 from aqt.browser import Browser
@@ -33,17 +34,19 @@ from logging.handlers import RotatingFileHandler
 # ----------------------------------------------------------------
 # Constants & Config
 # ----------------------------------------------------------------
-AI_PROVIDERS = ["openai", "deepseek"]
+AI_PROVIDERS = ["openai", "deepseek", "gemini"]
 
 DEFAULT_CONFIG = {
     "_version": 1.1,
     "AI_PROVIDER": "openai",
     "OPENAI_MODEL": "gpt-4o-mini",
     "DEEPSEEK_MODEL": "deepseek-chat",
-    # Now just "openai" or "deepseek" for keys
+    "GEMINI_MODEL": "gemini-pro",
+    # Now just "openai", "deepseek" or "gemini" for keys
     "API_KEYS": {
         # "openai": "...",
-        # "deepseek": "..."
+        # "deepseek": "...",
+        # "gemini": "..."
     },
     "TEMPERATURE": 0.2,
     "MAX_TOKENS": 200,
@@ -54,7 +57,9 @@ DEFAULT_CONFIG = {
         "output_field": "Output"
     },
     "DEEPSEEK_STREAM": False,
-    "APPEND_OUTPUT": False
+    "APPEND_OUTPUT": False,
+    "DEBUG_MODE": True,      # Show processing popups when enabled
+    "FILTER_MODE": False     # Skip notes where output field is filled
 }
 
 CONFIG_SCHEMA = {
@@ -73,6 +78,8 @@ CONFIG_SCHEMA = {
         "PROMPT": {"type": "string"},
         "DEEPSEEK_STREAM": {"type": "boolean"},
         "APPEND_OUTPUT": {"type": "boolean"},
+        "DEBUG_MODE": {"type": "boolean"},
+        "FILTER_MODE": {"type": "boolean"},
         "SELECTED_FIELDS": {
             "type": "object",
             "properties": {
@@ -89,7 +96,10 @@ PROMPT_SETTINGS_FILENAME = "prompt_settings.json"
 # Helpers
 # ----------------------------------------------------------------
 def safe_show_info(message: str) -> None:
-    QTimer.singleShot(0, lambda: showInfo(message))
+    if omni_prompt_manager.config.get("DEBUG_MODE", True):
+        QTimer.singleShot(0, lambda: showInfo(message))
+    else:
+        logger.info(f"Debug message (not shown to user): {message}")
 
 def load_prompt_templates() -> dict:
     """Loads prompts from prompt_templates.txt using [[[Name]]] delimiters."""
@@ -323,9 +333,53 @@ class OmniPromptManager:
             return self._make_openai_request(prompt, stream_progress_callback)
         elif provider == "deepseek":
             return self._make_deepseek_request(prompt, stream_progress_callback)
+        elif provider == "gemini":
+            return self._make_gemini_request(prompt, stream_progress_callback)
         else:
             logger.error(f"Invalid AI provider: {provider}")
             return "[Error: Invalid provider]"
+
+    def _make_gemini_request(self, prompt: str, stream_callback=None) -> str:
+        api_key = self.config.get("API_KEYS", {}).get("gemini", "")
+        if not api_key:
+            return "[Error: No Gemini key found]"
+
+        model = self.config.get("GEMINI_MODEL", "gemini-pro")
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        
+        headers = {
+            "Content-Type": "application/json"
+        }
+        
+        data = {
+            "contents": [{
+                "parts": [{
+                    "text": prompt
+                }]
+            }],
+            "generationConfig": {
+                "temperature": self.config.get("TEMPERATURE", 0.2),
+                "maxOutputTokens": self.config.get("MAX_TOKENS", 200)
+            }
+        }
+
+        try:
+            response = requests.post(
+                url,
+                headers=headers,
+                json=data,
+                timeout=self.config.get("TIMEOUT", 20))
+            response.raise_for_status()
+            response_json = response.json()
+            
+            if "candidates" in response_json and response_json["candidates"]:
+                text = response_json["candidates"][0]["content"]["parts"][0]["text"]
+                return text.strip()
+            return "[Error: Unexpected Gemini response format]"
+            
+        except Exception as e:
+            logger.exception("Gemini API request failed:")
+            return f"[Error: {str(e)}]"
 
     def _make_openai_request(self, prompt: str, stream_callback=None) -> str:
         api_key = self.config.get("API_KEYS", {}).get("openai", "")
@@ -501,6 +555,16 @@ class SettingsDialog(QDialog):
         self.max_tokens_input.setValidator(QIntValidator(1, 4000))
         api_layout.addRow("Max Tokens:", self.max_tokens_input)
 
+        # Debug mode checkbox
+        self.debug_mode_checkbox = QCheckBox("Show processing popups (Debug Mode)")
+        self.debug_mode_checkbox.setChecked(True)
+        api_layout.addRow(self.debug_mode_checkbox)
+
+        # Filter mode checkbox
+        self.filter_mode_checkbox = QCheckBox("Skip notes where output field is filled (Filter Mode)")
+        self.filter_mode_checkbox.setChecked(False)
+        api_layout.addRow(self.filter_mode_checkbox)
+
         api_group.setLayout(api_layout)
         layout.addWidget(api_group)
 
@@ -538,14 +602,18 @@ class SettingsDialog(QDialog):
 
         if provider == "openai":
             self.model_combo.setCurrentText(config.get("OPENAI_MODEL", "gpt-4o-mini"))
-        else:
+        elif provider == "deepseek":
             self.model_combo.setCurrentText(config.get("DEEPSEEK_MODEL", "deepseek-chat"))
+        elif provider == "gemini":
+            self.model_combo.setCurrentText(config.get("GEMINI_MODEL", "gemini-pro"))
 
         # Show the key for whichever provider is selected
         self.show_provider_key()
 
         self.temperature_input.setText(str(config.get("TEMPERATURE", 0.2)))
         self.max_tokens_input.setText(str(config.get("MAX_TOKENS", 200)))
+        self.debug_mode_checkbox.setChecked(config.get("DEBUG_MODE", True))
+        self.filter_mode_checkbox.setChecked(config.get("FILTER_MODE", False))
 
     def get_updated_config(self) -> dict:
         provider = self.provider_combo.currentText()
@@ -561,6 +629,8 @@ class SettingsDialog(QDialog):
         self.config["AI_PROVIDER"] = provider
         self.config["TEMPERATURE"] = float(self.temperature_input.text())
         self.config["MAX_TOKENS"] = int(self.max_tokens_input.text())
+        self.config["DEBUG_MODE"] = self.debug_mode_checkbox.isChecked()
+        self.config["FILTER_MODE"] = self.filter_mode_checkbox.isChecked()
 
         return self.config
 
@@ -571,6 +641,8 @@ class SettingsDialog(QDialog):
             self.model_combo.addItems(["gpt-4o-mini", "gpt-3.5-turbo", "gpt-4o", "o3-mini", "o1-mini"])
         elif provider == "deepseek":
             self.model_combo.addItems(["deepseek-chat", "deepseek-reasoner"])
+        elif provider == "gemini":
+            self.model_combo.addItems(["gemini-pro", "gemini-1.5-pro"])
 
         self.show_provider_key()
 
@@ -798,7 +870,9 @@ class UpdateOmniPromptDialog(QDialog):
                 self.output_field_combo.setCurrentText(out_field)
 
     def save_current_prompt(self):
-        name, ok = getText("Enter a name for the prompt:")
+        current_name = self.prompt_combo.currentText().strip()
+        name, ok = getText("Enter a name for the prompt:",
+            default=current_name)
         if ok and name:
             p = load_prompt_templates()
             p[name] = self.prompt_edit.toPlainText()
@@ -821,13 +895,26 @@ class UpdateOmniPromptDialog(QDialog):
             safe_show_info("Please select an output field.")
             return
 
+        filter_mode = self.manager.config.get("FILTER_MODE", False)
+        skipped_count = 0
+        
         for note in self.notes:
             try:
+                # Skip note if filter mode is on and output field is not empty
+                if filter_mode and note[output_field].strip():
+                    skipped_count += 1
+                    continue
+                    
                 formatted_prompt = prompt_template.format(**note)
             except KeyError as e:
                 safe_show_info(f"Missing field {e} in note {note.id}")
                 continue
             note_prompts.append((note, formatted_prompt))
+            
+        if filter_mode and skipped_count > 0:
+            logger.info(f"Filter mode skipped {skipped_count} notes with filled output fields")
+            if self.manager.config.get("DEBUG_MODE", True):
+                safe_show_info(f"Skipped {skipped_count} notes with filled output fields")
 
         if not note_prompts:
             safe_show_info("No valid notes to process.")
@@ -925,6 +1012,137 @@ class UpdateOmniPromptDialog(QDialog):
         self.stop_button.setEnabled(False)
 
 # ----------------------------------------------------------------
+# ManagePromptsDialog
+# ----------------------------------------------------------------
+class ManagePromptsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Manage Saved Prompts")
+        self.setMinimumSize(600, 500)
+        self.init_ui()
+        self.load_prompts()
+
+    def init_ui(self):
+        # Main splitter layout
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        
+        # Left panel - prompt list
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        
+        self.prompt_list = QListWidget()
+        self.prompt_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        self.prompt_list.itemSelectionChanged.connect(self.update_preview)
+        left_layout.addWidget(QLabel("Saved Prompts:"))
+        left_layout.addWidget(self.prompt_list)
+        
+        # Right panel - preview
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        
+        self.preview_name = QLabel("Select a prompt to preview")
+        self.preview_name.setStyleSheet("font-weight: bold; font-size: 14px;")
+        right_layout.addWidget(self.preview_name)
+        
+        self.preview_content = QTextEdit()
+        self.preview_content.setReadOnly(True)
+        self.preview_content.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        right_layout.addWidget(QLabel("Prompt Content:"))
+        right_layout.addWidget(self.preview_content)
+        
+        self.field_info = QLabel()
+        right_layout.addWidget(QLabel("Field Mapping:"))
+        right_layout.addWidget(self.field_info)
+        
+        # Add panels to splitter
+        splitter.addWidget(left_panel)
+        splitter.addWidget(right_panel)
+        splitter.setSizes([250, 350])
+        
+        # Buttons
+        btn_layout = QHBoxLayout()
+        self.delete_button = QPushButton("Delete Selected")
+        self.delete_button.clicked.connect(self.delete_selected)
+        self.cancel_button = QPushButton("Close")
+        self.cancel_button.clicked.connect(self.reject)
+        btn_layout.addWidget(self.delete_button)
+        btn_layout.addWidget(self.cancel_button)
+        
+        # Main layout
+        main_layout = QVBoxLayout(self)
+        main_layout.addWidget(splitter)
+        main_layout.addLayout(btn_layout)
+
+    def load_prompts(self):
+        prompts = load_prompt_templates()
+        self.prompt_list.clear()
+        for title in sorted(prompts.keys()):
+            self.prompt_list.addItem(title)
+
+    def update_preview(self):
+        selected = self.prompt_list.selectedItems()
+        if not selected:
+            self.preview_name.setText("Select a prompt to preview")
+            self.preview_content.clear()
+            self.field_info.clear()
+            return
+            
+        prompt_name = selected[0].text()
+        prompts = load_prompt_templates()
+        prompt_settings = load_prompt_settings()
+        
+        self.preview_name.setText(f"Preview: {prompt_name}")
+        self.preview_content.setPlainText(prompts.get(prompt_name, ""))
+        
+        # Show field mapping if exists
+        field = prompt_settings.get(prompt_name, {}).get("outputField", "Not set")
+        self.field_info.setText(f"Output field: {field}")
+
+    def delete_selected(self):
+        selected_items = self.prompt_list.selectedItems()
+        if not selected_items:
+            return
+
+        # Enhanced confirmation dialog
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle("Confirm Deletion")
+        
+        if len(selected_items) == 1:
+            prompt_name = selected_items[0].text()
+            content = load_prompt_templates().get(prompt_name, "")
+            msg.setText(f"Delete prompt '{prompt_name}'?")
+            msg.setInformativeText(
+                f"Prompt length: {len(content)} characters\n"
+                "This action cannot be undone."
+            )
+        else:
+            msg.setText(f"Delete {len(selected_items)} selected prompts?")
+            msg.setInformativeText("This action cannot be undone.")
+
+        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if msg.exec() != QMessageBox.StandardButton.Yes:
+            return
+
+        prompts = load_prompt_templates()
+        prompt_settings = load_prompt_settings()
+        
+        deleted_count = 0
+        for item in selected_items:
+            prompt_name = item.text()
+            if prompt_name in prompts:
+                del prompts[prompt_name]
+                deleted_count += 1
+            if prompt_name in prompt_settings:
+                del prompt_settings[prompt_name]
+        
+        save_prompt_templates(prompts)
+        save_prompt_settings(prompt_settings)
+        self.load_prompts()
+        self.update_preview()
+        showInfo(f"Deleted {deleted_count} prompt(s).")
+
+# ----------------------------------------------------------------
 # AboutDialog
 # ----------------------------------------------------------------
 class AboutDialog(QDialog):
@@ -934,7 +1152,7 @@ class AboutDialog(QDialog):
         layout = QVBoxLayout(self)
         about_text = (
             "<h2>OmniPrompt Anki Add‑on</h2>"
-            "<p>Version: 1.1.3</p>"
+            "<p>Version: 1.1.4</p>"
             "<p><a href='https://ankiweb.net/shared/review/1383162606'>Rate add-on on AnkiWeb</a></p>"
             "<p>For documentation, visit:</p>"
             "<p><a href='https://github.com/stanamosov/omniprompt-anki'>GitHub Repo</a></p>"
@@ -960,6 +1178,10 @@ def setup_omniprompt_menu():
     settings_action = QAction("Settings", mw)
     settings_action.triggered.connect(lambda: omni_prompt_manager.show_settings_dialog())
     omni_menu.addAction(settings_action)
+
+    manage_action = QAction("Manage Prompts", mw)
+    manage_action.triggered.connect(lambda: ManagePromptsDialog(mw).exec())
+    omni_menu.addAction(manage_action)
 
     about_action = QAction("About", mw)
     about_action.triggered.connect(lambda: AboutDialog(mw).exec())
