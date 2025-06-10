@@ -34,24 +34,28 @@ from logging.handlers import RotatingFileHandler
 # ----------------------------------------------------------------
 # Constants & Config
 # ----------------------------------------------------------------
-AI_PROVIDERS = ["openai", "deepseek", "gemini"]
+AI_PROVIDERS = ["openai", "deepseek", "gemini", "anthropic", "xai"]
 
 DEFAULT_CONFIG = {
     "_version": 1.1,
     "AI_PROVIDER": "openai",
     "OPENAI_MODEL": "gpt-4o-mini",
     "DEEPSEEK_MODEL": "deepseek-chat",
-    "GEMINI_MODEL": "gemini-pro",
-    # Now just "openai", "deepseek" or "gemini" for keys
+    "GEMINI_MODEL": "gemini-1.5-flash",  # Default to 1.5-pro as it's more capable
+    "ANTHROPIC_MODEL": "claude-opus-4-latest",
+    "XAI_MODEL": "grok-3-latest",
+    # Now includes all supported providers
     "API_KEYS": {
         # "openai": "...",
-        # "deepseek": "...",
-        # "gemini": "..."
+        # "deepseek": "...", 
+        # "gemini": "...",
+        # "anthropic": "...",
+        # "xai": "..."
     },
     "TEMPERATURE": 0.2,
-    "MAX_TOKENS": 200,
-    "API_DELAY": 1,          # Delay (seconds) between API calls
-    "TIMEOUT": 20,           # Request timeout
+    "MAX_TOKENS": 500,
+    "API_DELAY": 2,          # Delay (seconds) between API calls
+    "TIMEOUT": 30,           # Request timeout
     "PROMPT": "Paste your prompt here.",
     "SELECTED_FIELDS": {
         "output_field": "Output"
@@ -335,9 +339,90 @@ class OmniPromptManager:
             return self._make_deepseek_request(prompt, stream_progress_callback)
         elif provider == "gemini":
             return self._make_gemini_request(prompt, stream_progress_callback)
+        elif provider == "anthropic":
+            return self._make_anthropic_request(prompt, stream_progress_callback)
+        elif provider == "xai":
+            return self._make_xai_request(prompt, stream_progress_callback)
         else:
             logger.error(f"Invalid AI provider: {provider}")
             return "[Error: Invalid provider]"
+
+    def _make_anthropic_request(self, prompt: str, stream_callback=None) -> str:
+        api_key = self.config.get("API_KEYS", {}).get("anthropic", "")
+        if not api_key:
+            return "[Error: No Anthropic key found]"
+
+        model = self.config.get("ANTHROPIC_MODEL", "claude-3-opus-20240229")
+        url = "https://api.anthropic.com/v1/messages"
+        
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01"
+        }
+        
+        data = {
+            "model": model,
+            "max_tokens": self.config.get("MAX_TOKENS", 200),
+            "temperature": self.config.get("TEMPERATURE", 0.2),
+            "messages": [{"role": "user", "content": prompt}]
+        }
+
+        try:
+            response = requests.post(
+                url,
+                headers=headers,
+                json=data,
+                timeout=self.config.get("TIMEOUT", 20))
+            response.raise_for_status()
+            response_json = response.json()
+            
+            if "content" in response_json and response_json["content"]:
+                text = response_json["content"][0]["text"]
+                return text.strip()
+            return "[Error: Unexpected Anthropic response format]"
+            
+        except Exception as e:
+            logger.exception("Anthropic API request failed:")
+            return f"[Error: {str(e)}]"
+
+    def _make_xai_request(self, prompt: str, stream_callback=None) -> str:
+        api_key = self.config.get("API_KEYS", {}).get("xai", "")
+        if not api_key:
+            return "[Error: No xAI key found]"
+
+        model = self.config.get("XAI_MODEL", "grok-1.5")
+        url = "https://api.x.ai/v1/chat/completions"
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+        
+        data = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": self.config.get("TEMPERATURE", 0.2),
+            "max_tokens": self.config.get("MAX_TOKENS", 200)
+        }
+
+        try:
+            response = requests.post(
+                url,
+                headers=headers,
+                json=data,
+                timeout=self.config.get("TIMEOUT", 20))
+            response.raise_for_status()
+            response_json = response.json()
+            
+            if "choices" in response_json and response_json["choices"]:
+                text = response_json["choices"][0]["message"]["content"]
+                return text.strip()
+            return "[Error: Unexpected xAI response format]"
+            
+        except Exception as e:
+            logger.exception("xAI API request failed:")
+            return f"[Error: {str(e)}]"
 
     def _make_gemini_request(self, prompt: str, stream_callback=None) -> str:
         api_key = self.config.get("API_KEYS", {}).get("gemini", "")
@@ -642,7 +727,11 @@ class SettingsDialog(QDialog):
         elif provider == "deepseek":
             self.model_combo.addItems(["deepseek-chat", "deepseek-reasoner"])
         elif provider == "gemini":
-            self.model_combo.addItems(["gemini-pro", "gemini-1.5-pro"])
+            self.model_combo.addItems(["gemini-pro", "gemini-1.5-pro", "gemini-flash"])
+        elif provider == "anthropic":
+            self.model_combo.addItems(["claude-opus-4-latest", "claude-sonnet-4-latest", "claude-haiku-3.5-latest"])
+        elif provider == "xai":
+            self.model_combo.addItems(["grok-3-latest", "grok-3-mini-latest"])
 
         self.show_provider_key()
 
