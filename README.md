@@ -189,6 +189,10 @@ To make debugging easier, the add-on includes a **View Log** button in the **Set
 
 ### **🚀 Planned**
 - [ ] Support for more AI models.
+- [ ] Support for Google Gemini
+- [ ] Debug Mode – Optional toggle to suppress popup messages when processing single notes
+- [ ] Filter Mode – Skip processing if the selected output field is already filled
+- [ ] Prompt Cleanup Tool – Built-in editor for viewing, updating, and deleting saved presets (no file editing needed)
 
 ---
 
@@ -203,6 +207,15 @@ This project is licensed under the [**MIT License**](docs/LICENSE). Feel free to
 - Want to contribute? See the **Contributing** section.
 
 OmniPrompt-Anki is **completely free** and open-source, created to help learners enhance their flashcards with AI-powered content. If you find this add-on useful, you can support its development by **leaving a positive review on AnkiWeb**. Your feedback helps more users discover the add-on and encourages further improvements.  
+
+## 🙏 Special Thanks
+
+Huge thanks to [u/Smooth-Put5476](https://www.reddit.com/user/Smooth-Put5476/) for their thoughtful suggestions and feedback on the [OmniPrompt-Anki Reddit thread](https://www.reddit.com/r/Anki/comments/1idzmzg/omniprompt_anki_aipowered_addon_for_anki/).  
+Many of the improvements in recent versions would not have been possible without their input!
+
+Your support and ideas make this project better for everyone. ❤️
+
+---
 
 👉 [**Rate add-on on AnkiWeb**](https://ankiweb.net/shared/review/1383162606)  
 
