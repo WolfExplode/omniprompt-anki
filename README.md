@@ -2,6 +2,7 @@
 ## v1.1.3
 [![OpenAI](https://img.shields.io/badge/OpenAI-%2312100E.svg?style=flat&logo=openai&logoColor=white)](https://openai.com)
 [![DeepSeek](https://img.shields.io/badge/DeepSeek-4B9CD3.svg?style=flat&logo=deepl&logoColor=white)](https://deepseek.com)
+[![Google Gemini](https://img.shields.io/badge/Google%20Gemini-886FBF?logo=googlegemini&logoColor=white)](https://gemini.google.com)
 
 **Your AI Anki Assistant!** OmniPrompt Anki is an Anki add-on that enhances your flashcards with AI-powered content generation. It integrates with **OpenAI** and **DeepSeek** models to help you improve your decks effortlessly.
 
@@ -186,13 +187,13 @@ To make debugging easier, the add-on includes a **View Log** button in the **Set
 - [x] Saving the output field selection together with the prompt template and title.
 - [x] Improving search behavior in the Saved Prompts box with better autocomplete and multi-instance selection.
 - [x] Adding an "Append" option for the Output Field to allow content to be added instead of replaced.
+- [x] Google Gemini support
+- [x] Debug Mode – optional toggle to suppress popup messages when processing single notes
+- [x] Filter Mode – skip processing if the selected output field is already filled 
+- [x] Prompt Cleanup Tool
 
 ### **🚀 Planned**
 - [ ] Support for more AI models.
-- [ ] Support for Google Gemini
-- [ ] Debug Mode – Optional toggle to suppress popup messages when processing single notes
-- [ ] Filter Mode – Skip processing if the selected output field is already filled
-- [ ] Prompt Cleanup Tool – Built-in editor for viewing, updating, and deleting saved presets (no file editing needed)
 
 ---
 
