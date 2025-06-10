@@ -1045,7 +1045,6 @@ class ManagePromptsDialog(QDialog):
         right_layout.addWidget(self.preview_name)
         
         self.preview_content = QTextEdit()
-        self.preview_content.setReadOnly(True)
         self.preview_content.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
         right_layout.addWidget(QLabel("Prompt Content:"))
         right_layout.addWidget(self.preview_content)
@@ -1061,10 +1060,13 @@ class ManagePromptsDialog(QDialog):
         
         # Buttons
         btn_layout = QHBoxLayout()
+        self.save_button = QPushButton("Save Changes")
+        self.save_button.clicked.connect(self.save_changes)
         self.delete_button = QPushButton("Delete Selected")
         self.delete_button.clicked.connect(self.delete_selected)
         self.cancel_button = QPushButton("Close")
         self.cancel_button.clicked.connect(self.reject)
+        btn_layout.addWidget(self.save_button)
         btn_layout.addWidget(self.delete_button)
         btn_layout.addWidget(self.cancel_button)
         
@@ -1097,6 +1099,22 @@ class ManagePromptsDialog(QDialog):
         # Show field mapping if exists
         field = prompt_settings.get(prompt_name, {}).get("outputField", "Not set")
         self.field_info.setText(f"Output field: {field}")
+
+    def save_changes(self):
+        selected_items = self.prompt_list.selectedItems()
+        if not selected_items:
+            return
+            
+        prompt_name = selected_items[0].text()
+        new_content = self.preview_content.toPlainText()
+        
+        prompts = load_prompt_templates()
+        if prompt_name in prompts:
+            prompts[prompt_name] = new_content
+            save_prompt_templates(prompts)
+            showInfo("Prompt changes saved successfully.")
+        else:
+            showInfo("Error: Prompt not found")
 
     def delete_selected(self):
         selected_items = self.prompt_list.selectedItems()
