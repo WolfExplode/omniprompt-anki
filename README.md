@@ -1,21 +1,22 @@
 # OmniPrompt Anki 
-## v1.1.3
+## v1.1.4
 [![OpenAI](https://img.shields.io/badge/OpenAI-%2312100E.svg?style=flat&logo=openai&logoColor=white)](https://openai.com)
 [![DeepSeek](https://img.shields.io/badge/DeepSeek-4B9CD3.svg?style=flat&logo=deepl&logoColor=white)](https://deepseek.com)
 [![Google Gemini](https://img.shields.io/badge/Google%20Gemini-886FBF?logo=googlegemini&logoColor=white)](https://gemini.google.com)
+[![Claude](https://img.shields.io/badge/Claude-D97757?logo=claude&logoColor=white)](https://claude.ai/)
 
-**Your AI Anki Assistant!** OmniPrompt Anki is an Anki add-on that enhances your flashcards with AI-powered content generation. It integrates with **OpenAI** and **DeepSeek** models to help you improve your decks effortlessly.
+**Your AI Anki Assistant!** OmniPrompt Anki is an Anki add-on that enhances your flashcards with AI-powered content generation. It supports multiple AI providers — including OpenAI, Google Gemini, Anthropic (Claude), DeepSeek, and xAI — giving you full control over how your content is created. With features like prompt management, batch processing, filter mode, debug mode, and multi-provider support, OmniPrompt helps you build richer, smarter decks in less time.
 
 ## Features
 ✅ **AI-Powered Content** – Generate definitions, translations, explanations, synonyms, and more.  
-✅ **Supports OpenAI & DeepSeek** – Choose your AI provider.  
+✅ **Supports OpenAI, DeepSeek, Anthropic, XAI** – Choose your AI provider. 
 ✅ **Custom Prompts** – Save and reuse prompt templates with field placeholders.  
 ✅ **Batch Processing** – Process multiple notes simultaneously.  
 ✅ **Real-Time Progress Tracking** – Monitor AI generation progress for each note.  
 ✅ **Flexible Field Selection** – Choose which field to update dynamically.  
 ✅ **Auto-Save** – Generated content is automatically saved to the selected field.  
 ✅ **Formatting Cleanup** – Use AI to clean or modify existing text formatting.  
-✅ **Advanced Settings** – Fine-tune timeout, delay, and API streaming options.  
+✅ **Advanced Settings** – Fine-tune timeout, delay, and API options.  
 ✅ **Keyboard Shortcuts** – Quickly process notes with hotkeys.  
 
 ---
@@ -25,10 +26,11 @@
 | Feature | Description | Screenshot |
 |---------|------------|------------|
 | **Find Add-on Settings** | Open Anki and go to Tools → OmniPrompt-Anki → Settings | ![Batch Processing](docs/user_interface/settings.jpg) |
-| **Settings Menu** | Configure API Key, AI model, and prompt template. | ![Settings](docs/user_interface/settings.jpg) |
-| **Advenced Settings** | Open Settings → Advenced Settings, there you can change API Delay, Timeout and Deepseek Streaming | ![Batch Processing](docs/user_interface/advanced_settings.jpg) |
+| **Settings Menu** |  Configure API Provider (OpenAI, Gemini, etc.), API Key, Model, Temperature, Max Tokens, and toggles like Debug Mode and Filter Mode. | ![Settings](docs/user_interface/settings.jpg) |
+| **Advenced Settings** | Click **Advanced Settings** in the configuration window to modify API Delay, Timeout, and DeepSeek streaming behavior. | ![Batch Processing](docs/user_interface/advanced_settings.jpg) |
+| **Manage Saved Prompts**    | View, edit, or delete saved prompt presets in a dedicated UI panel. | ![Manage Prompts](docs/user_interface/prompts-menu.jpg) |
 | **Update with OmniPrompt** | Right-click in the Anki Browser to update notes using AI. | ![Context Menu](docs/user_interface/context_menu.jpg) |
-| **Batch Processing Window** | View progress, original content, and generated AI responses. | ![Batch Processing](docs/user_interface/main_ui.jpg) |
+| **Batch Processing Window** | Track generation progress and view original content alongside AI output during bulk updates. | ![Batch Processing](docs/user_interface/main_ui.jpg) |
 
 ---
 
@@ -176,21 +178,23 @@ To make debugging easier, the add-on includes a **View Log** button in the **Set
 
 ## 🛠️ Roadmap
 ### **✅ Completed**
-- [x] Custom prompts & field selection.
-- [x] OpenAI & DeepSeek integration.
-- [x] UI improvements & auto-save feature.
-- [x] Enhanced UI for multi-note processing.
-- [x] Keyboard shortcuts.
-- [x] Advanced settings.
-- [x] Keeping the Browse window accessible when updating with OmniPrompt.
-- [x] Storing API keys separately for each model.
-- [x] Saving the output field selection together with the prompt template and title.
-- [x] Improving search behavior in the Saved Prompts box with better autocomplete and multi-instance selection.
-- [x] Adding an "Append" option for the Output Field to allow content to be added instead of replaced.
-- [x] Google Gemini support
-- [x] Debug Mode – optional toggle to suppress popup messages when processing single notes
-- [x] Filter Mode – skip processing if the selected output field is already filled 
-- [x] Prompt Cleanup Tool
+* [x] Custom prompt creation with field selection support
+* [x] Added OpenAI and DeepSeek model integration
+* [x] Improved UI with auto-save functionality
+* [x] Enhanced multi-note processing interface
+* [x] Implemented keyboard shortcuts
+* [x] Added advanced settings panel
+* [x] Made Browse window remain accessible during OmniPrompt use
+* [x] Stored API keys separately for each provider
+* [x] Saved output field selection with each prompt template
+* [x] Improved prompt search and multi-select in Saved Prompts panel
+* [x] Added “Append” mode for output field (non-destructive updates)
+* [x] Added Google Gemini API support
+* [x] Added Debug Mode toggle to suppress popups for single note use
+* [x] Added Filter Mode to skip notes with pre-filled output fields
+* [x] Introduced Prompt Cleanup Tool (UI-based management of saved prompts)
+* [x] Added support for Anthropic (Claude)
+* [x] Added support for xAI models
 
 ### **🚀 Planned**
 - [ ] Support for more AI models.
