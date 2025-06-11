@@ -47,7 +47,7 @@ DEFAULT_CONFIG = {
     # Now includes all supported providers
     "API_KEYS": {
         # "openai": "...",
-        # "deepseek": "...", 
+        # "deepseek": "...",
         # "gemini": "...",
         # "anthropic": "...",
         # "xai": "..."
@@ -63,7 +63,9 @@ DEFAULT_CONFIG = {
     "DEEPSEEK_STREAM": False,
     "APPEND_OUTPUT": False,
     "DEBUG_MODE": True,      # Show processing popups when enabled
-    "FILTER_MODE": False     # Skip notes where output field is filled
+    "FILTER_MODE": False,     # Skip notes where output field is filled
+    "MULTI_FIELD_MODE": False,
+    "AUTO_SEND_TO_CARD": True # New config key for auto-sending data
 }
 
 CONFIG_SCHEMA = {
@@ -73,6 +75,9 @@ CONFIG_SCHEMA = {
         "AI_PROVIDER": {"enum": AI_PROVIDERS},
         "OPENAI_MODEL": {"type": "string"},
         "DEEPSEEK_MODEL": {"type": "string"},
+        "GEMINI_MODEL": {"type": "string"},
+        "ANTHROPIC_MODEL": {"type": "string"},
+        "XAI_MODEL": {"type": "string"},
         # Single key per provider
         "API_KEYS": {"type": "object"},
         "TEMPERATURE": {"type": "number"},
@@ -84,6 +89,8 @@ CONFIG_SCHEMA = {
         "APPEND_OUTPUT": {"type": "boolean"},
         "DEBUG_MODE": {"type": "boolean"},
         "FILTER_MODE": {"type": "boolean"},
+        "MULTI_FIELD_MODE": {"type": "boolean"},
+        "AUTO_SEND_TO_CARD": {"type": "boolean"}, # Add to schema
         "SELECTED_FIELDS": {
             "type": "object",
             "properties": {
@@ -95,6 +102,7 @@ CONFIG_SCHEMA = {
 }
 
 PROMPT_SETTINGS_FILENAME = "prompt_settings.json"
+MULTI_FIELD_PATTERN = r'```([\w\s]+)\n([^`]+)```'
 
 # ----------------------------------------------------------------
 # Helpers
@@ -131,7 +139,9 @@ def save_prompt_templates(templates: dict) -> None:
     os.makedirs(os.path.dirname(templates_path), exist_ok=True)
     with open(templates_path, "w", encoding="utf-8", newline="\n") as file:
         for key, value in sorted(templates.items()):
-            file.write(f"[[[{key}]]]\n{value}\n\n")
+            # Strip trailing whitespace from the value before saving
+            cleaned_value = value.rstrip()
+            file.write(f"[[[{key}]]]\n{cleaned_value}\n")
 
 def check_internet() -> bool:
     try:
@@ -354,13 +364,13 @@ class OmniPromptManager:
 
         model = self.config.get("ANTHROPIC_MODEL", "claude-3-opus-20240229")
         url = "https://api.anthropic.com/v1/messages"
-        
+
         headers = {
             "Content-Type": "application/json",
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01"
         }
-        
+
         data = {
             "model": model,
             "max_tokens": self.config.get("MAX_TOKENS", 200),
@@ -376,12 +386,12 @@ class OmniPromptManager:
                 timeout=self.config.get("TIMEOUT", 20))
             response.raise_for_status()
             response_json = response.json()
-            
+
             if "content" in response_json and response_json["content"]:
                 text = response_json["content"][0]["text"]
                 return text.strip()
             return "[Error: Unexpected Anthropic response format]"
-            
+
         except Exception as e:
             logger.exception("Anthropic API request failed:")
             return f"[Error: {str(e)}]"
@@ -393,12 +403,12 @@ class OmniPromptManager:
 
         model = self.config.get("XAI_MODEL", "grok-1.5")
         url = "https://api.x.ai/v1/chat/completions"
-        
+
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}"
         }
-        
+
         data = {
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
@@ -414,12 +424,12 @@ class OmniPromptManager:
                 timeout=self.config.get("TIMEOUT", 20))
             response.raise_for_status()
             response_json = response.json()
-            
+
             if "choices" in response_json and response_json["choices"]:
                 text = response_json["choices"][0]["message"]["content"]
                 return text.strip()
             return "[Error: Unexpected xAI response format]"
-            
+
         except Exception as e:
             logger.exception("xAI API request failed:")
             return f"[Error: {str(e)}]"
@@ -431,11 +441,11 @@ class OmniPromptManager:
 
         model = self.config.get("GEMINI_MODEL", "gemini-pro")
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-        
+
         headers = {
             "Content-Type": "application/json"
         }
-        
+
         data = {
             "contents": [{
                 "parts": [{
@@ -456,12 +466,12 @@ class OmniPromptManager:
                 timeout=self.config.get("TIMEOUT", 20))
             response.raise_for_status()
             response_json = response.json()
-            
+
             if "candidates" in response_json and response_json["candidates"]:
                 text = response_json["candidates"][0]["content"]["parts"][0]["text"]
                 return text.strip()
             return "[Error: Unexpected Gemini response format]"
-            
+
         except Exception as e:
             logger.exception("Gemini API request failed:")
             return f"[Error: {str(e)}]"
@@ -595,7 +605,7 @@ class OmniPromptManager:
 # ----------------------------------------------------------------
 class SettingsDialog(QDialog):
     """
-    Single API key per provider. 
+    Single API key per provider.
     Changing the model won't affect the key field.
     """
     def __init__(self, parent=None) -> None:
@@ -691,6 +701,10 @@ class SettingsDialog(QDialog):
             self.model_combo.setCurrentText(config.get("DEEPSEEK_MODEL", "deepseek-chat"))
         elif provider == "gemini":
             self.model_combo.setCurrentText(config.get("GEMINI_MODEL", "gemini-pro"))
+        elif provider == "anthropic":
+            self.model_combo.setCurrentText(config.get("ANTHROPIC_MODEL", "claude-opus-4-latest"))
+        elif provider == "xai":
+            self.model_combo.setCurrentText(config.get("XAI_MODEL", "grok-3-latest"))
 
         # Show the key for whichever provider is selected
         self.show_provider_key()
@@ -700,12 +714,19 @@ class SettingsDialog(QDialog):
         self.debug_mode_checkbox.setChecked(config.get("DEBUG_MODE", True))
         self.filter_mode_checkbox.setChecked(config.get("FILTER_MODE", False))
 
+
     def get_updated_config(self) -> dict:
         provider = self.provider_combo.currentText()
         if provider == "openai":
             self.config["OPENAI_MODEL"] = self.model_combo.currentText()
-        else:
+        elif provider == "deepseek":
             self.config["DEEPSEEK_MODEL"] = self.model_combo.currentText()
+        elif provider == "gemini":
+            self.config["GEMINI_MODEL"] = self.model_combo.currentText()
+        elif provider == "anthropic":
+            self.config["ANTHROPIC_MODEL"] = self.model_combo.currentText()
+        elif provider == "xai":
+            self.config["XAI_MODEL"] = self.model_combo.currentText()
 
         # Store the single key for this provider
         self.config.setdefault("API_KEYS", {})
@@ -841,9 +862,13 @@ class UpdateOmniPromptDialog(QDialog):
         self.notes = notes
         self.manager = manager
         self.worker = None
+        self.setMinimumSize(800, 600)  # Set your desired minimum width and height
+        # You could also use self.resize(800, 600) if you want it to open at a fixed size
         self.setup_ui()
 
         self.setWindowModality(Qt.WindowModality.NonModal)
+        self.multi_field_mode = self.manager.config.get("MULTI_FIELD_MODE", False) # Initialize from config
+        self.auto_detect_fields = []  # Store auto-detected field names
 
     def setup_ui(self):
         main_layout = QHBoxLayout(self)
@@ -887,11 +912,25 @@ class UpdateOmniPromptDialog(QDialog):
         self.append_checkbox.stateChanged.connect(self.on_append_checkbox_changed)
         left_panel.addWidget(self.append_checkbox)
 
+        # Add Multi-field Mode checkbox
+        self.multi_field_checkbox = QCheckBox("Auto-detect multiple output fields")
+        self.multi_field_checkbox.setChecked(self.manager.config.get("MULTI_FIELD_MODE", False))
+        self.multi_field_checkbox.stateChanged.connect(self.toggle_multi_field_mode)
+        left_panel.addWidget(self.multi_field_checkbox)
+
+        # NEW: Auto Send Data to Card Checkbox
+        self.auto_send_checkbox = QCheckBox("Automatically Send Data to Card")
+        self.auto_send_checkbox.setChecked(self.manager.config.get("AUTO_SEND_TO_CARD", True))
+        self.auto_send_checkbox.stateChanged.connect(self.on_auto_send_checkbox_changed)
+        left_panel.addWidget(self.auto_send_checkbox)
+
+
         # Start / Stop / Save Edits
         self.start_button = QPushButton("Start")
+        self.start_button.setMinimumSize(80, 30)  # Make it slightly bigger
         self.stop_button = QPushButton("Stop")
         self.stop_button.setEnabled(False)
-        self.save_changes_button = QPushButton("Save Manual Edits")
+        self.save_changes_button = QPushButton("Send Data To Card")
         left_panel.addWidget(self.start_button)
         left_panel.addWidget(self.stop_button)
         left_panel.addWidget(self.save_changes_button)
@@ -903,6 +942,14 @@ class UpdateOmniPromptDialog(QDialog):
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(["Progress", "Original", "Generated"])
         self.table.horizontalHeader().setStretchLastSection(True)
+
+        # Increase default row height
+        self.table.verticalHeader().setDefaultSectionSize(35) # Default is around 25-30
+        # Increase default column width for better horizontal spacing
+        self.table.horizontalHeader().setDefaultSectionSize(150) # Adjust as needed
+        # You can also set a minimum section size for more consistent spacing
+        self.table.horizontalHeader().setMinimumSectionSize(100)
+        self.table.verticalHeader().setMinimumSectionSize(30)
         main_layout.addWidget(self.table, 3)
 
         self.setLayout(main_layout)
@@ -922,6 +969,41 @@ class UpdateOmniPromptDialog(QDialog):
         sc = QShortcut(QKeySequence("Ctrl+Return"), self)
         sc.activated.connect(self.start_processing)
 
+        # Apply initial multi-field mode state
+        self.toggle_multi_field_mode(self.manager.config.get("MULTI_FIELD_MODE", False))
+
+    def parse_fields_for_selected(self):
+        """Parse generated text for selected rows into fields"""
+        selected_rows = [idx.row() for idx in self.table.selectionModel().selectedRows()]
+        if not selected_rows:
+            safe_show_info("Please select at least one row.")
+            return
+
+        for row in selected_rows:
+            generated_item = self.table.item(row, 2)
+            if not generated_item:
+                continue
+
+            explanation = generated_item.text()
+            field_map = self.parse_multi_field_output(explanation)
+
+            # Update the table columns
+            for col, field_name in enumerate(self.auto_detect_fields, start=3):
+                # Ensure we have enough columns
+                if col >= self.table.columnCount():
+                    self.table.setColumnCount(col + 1)
+                    self.table.setHorizontalHeaderItem(
+                        col, QTableWidgetItem(f"Field {col-2}")
+                    )
+
+                # Create or get the column item
+                if self.table.item(row, col) is None:
+                    self.table.setItem(row, col, QTableWidgetItem())
+
+                # Set content if field exists in parsed output
+                if field_name in field_map:
+                    self.table.item(row, col).setText(field_map[field_name])
+
     def on_append_checkbox_changed(self, state: int):
         logger.info(f"on_append_checkbox_changed start: state={state}")
         # Properly handle Qt.CheckState (0=Unchecked, 2=Checked)
@@ -939,6 +1021,16 @@ class UpdateOmniPromptDialog(QDialog):
         except Exception as e:
             logger.exception("Failed to save/reload config:")
         logger.info(f"done saving config")
+
+    def on_auto_send_checkbox_changed(self, state: int):
+        is_checked = bool(state)
+        self.manager.config["AUTO_SEND_TO_CARD"] = is_checked
+        try:
+            self.manager.save_config()
+        except Exception as e:
+            logger.exception("Failed to save auto-send to card setting:")
+            if self.manager.config.get("DEBUG_MODE", False):
+                safe_show_info(f"Failed to save setting: {str(e)}")
 
     def load_prompts(self):
         prompts = load_prompt_templates()
@@ -976,30 +1068,81 @@ class UpdateOmniPromptDialog(QDialog):
             self.prompt_combo.setCurrentText(name)
             showInfo("Prompt saved.")
 
+    def toggle_multi_field_mode(self, state):
+        """Enable/disable multi-field output mode and adjust table layout."""
+        is_checked = bool(state)
+        self.multi_field_mode = is_checked
+
+        # Save to config with error handling
+        self.manager.config["MULTI_FIELD_MODE"] = is_checked
+        try:
+            self.manager.save_config()
+        except Exception as e:
+            logger.exception("Failed to save multi-field mode setting:")
+            if self.manager.config.get("DEBUG_MODE", False):
+                safe_show_info(f"Failed to save setting: {str(e)}")
+
+        # Update UI controls
+        self.output_field_combo.setEnabled(not self.multi_field_mode)
+        self.append_checkbox.setEnabled(not self.multi_field_mode)
+        
+        # Clear the table when switching modes to prevent an inconsistent state
+        self.table.setRowCount(0)
+        self.table.setColumnCount(0)
+
+        if self.multi_field_mode:
+            # Multi-field mode setup: Remove "Original" column
+            self.table.setColumnCount(2)
+            self.table.setHorizontalHeaderLabels(["Progress", "Generated"])
+
+            # Add parse button if it doesn't exist
+            if not hasattr(self, 'parse_fields_button'):
+                self.parse_fields_button = QPushButton("Re-Parse Fields for All Rows")
+                self.parse_fields_button.clicked.connect(self.parse_fields_for_all_rows)
+                layout = self.layout().itemAt(0).layout()
+                try:
+                    insert_idx = [layout.itemAt(i).widget() for i in range(layout.count())].index(self.multi_field_checkbox) + 1
+                    layout.insertWidget(insert_idx, self.parse_fields_button)
+                except (ValueError, AttributeError):
+                    layout.addWidget(self.parse_fields_button)
+        else:
+            # Single-field mode cleanup: Restore "Original" column
+            self.table.setColumnCount(3)
+            self.table.setHorizontalHeaderLabels(["Progress", "Original", "Generated"])
+
+            # Remove parse button if it exists
+            if hasattr(self, 'parse_fields_button'):
+                self.parse_fields_button.deleteLater()
+                del self.parse_fields_button
+
+            # Clear detected fields
+            self.auto_detect_fields = []
+
     def start_processing(self):
         note_prompts = []
         prompt_template = self.prompt_edit.toPlainText()
         output_field = self.output_field_combo.currentText().strip()
-        if not output_field:
-            safe_show_info("Please select an output field.")
+        
+        # Only require output field if not in multi-field mode
+        if not self.multi_field_mode and not output_field:
+            safe_show_info("Please select an output field or enable multi-field mode.")
             return
 
         filter_mode = self.manager.config.get("FILTER_MODE", False)
         skipped_count = 0
-        
+
         for note in self.notes:
             try:
                 # Skip note if filter mode is on and output field is not empty
-                if filter_mode and note[output_field].strip():
+                if filter_mode and not self.multi_field_mode and note[output_field].strip():
                     skipped_count += 1
                     continue
-                    
                 formatted_prompt = prompt_template.format(**note)
             except KeyError as e:
                 safe_show_info(f"Missing field {e} in note {note.id}")
                 continue
             note_prompts.append((note, formatted_prompt))
-            
+
         if filter_mode and skipped_count > 0:
             logger.info(f"Filter mode skipped {skipped_count} notes with filled output fields")
             if self.manager.config.get("DEBUG_MODE", True):
@@ -1009,21 +1152,36 @@ class UpdateOmniPromptDialog(QDialog):
             safe_show_info("No valid notes to process.")
             return
 
-        self.table.setRowCount(len(note_prompts))
-        for row, (note, _) in enumerate(note_prompts):
-            progress_item = QTableWidgetItem("0%")
-            try:
-                original_text = note[output_field]
-            except Exception:
-                original_text = ""
+        self.auto_detect_fields = []  # Clear auto-detect fields when starting
 
-            original_item = QTableWidgetItem(original_text)
-            original_item.setData(Qt.ItemDataRole.UserRole, note.id)
-            generated_item = QTableWidgetItem("")
+        if self.multi_field_mode:
+            # Create two rows per note: one for generated, one for original
+            self.table.setRowCount(len(note_prompts) * 2)
+            for i, (note, _) in enumerate(note_prompts):
+                gen_row, orig_row = i * 2, i * 2 + 1
 
-            self.table.setItem(row, 0, progress_item)
-            self.table.setItem(row, 1, original_item)
-            self.table.setItem(row, 2, generated_item)
+                # Generated Row
+                progress_item = QTableWidgetItem("0%")
+                progress_item.setData(Qt.ItemDataRole.UserRole, note.id)
+                self.table.setItem(gen_row, 0, progress_item)
+                self.table.setItem(gen_row, 1, QTableWidgetItem(""))  # Placeholder for generated content
+
+                # Original Row
+                original_label = QTableWidgetItem("Original")
+                original_label.setData(Qt.ItemDataRole.UserRole, note.id) # Also store note_id here
+                self.table.setItem(orig_row, 0, original_label)
+                self.table.setSpan(orig_row, 0, 1, 2) # Span label across the first two columns
+        else:
+            # Original single-field mode: one row per note
+            self.table.setRowCount(len(note_prompts))
+            for row, (note, _) in enumerate(note_prompts):
+                progress_item = QTableWidgetItem("0%")
+                original_text = note[output_field] if output_field and output_field in note else ""
+                original_item = QTableWidgetItem(original_text)
+                original_item.setData(Qt.ItemDataRole.UserRole, note.id)
+                self.table.setItem(row, 0, progress_item)
+                self.table.setItem(row, 1, original_item)
+                self.table.setItem(row, 2, QTableWidgetItem(""))
 
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
@@ -1034,6 +1192,72 @@ class UpdateOmniPromptDialog(QDialog):
         self.worker.finished_processing.connect(self.processing_finished, Qt.ConnectionType.QueuedConnection)
         self.worker.start()
 
+    def parse_multi_field_output(self, explanation: str) -> dict:
+        """Parse AI output into multiple fields using various patterns"""
+        import re
+        field_map = {}
+
+        # Pattern 1: Code block markers (original)
+        pattern1 = r'```\s*([\w\s]+)\s*\n([\s\S]*?)\s*```'
+        matches1 = re.findall(pattern1, explanation, re.DOTALL)
+
+        # Pattern 2: XML-like tags
+        pattern2 = r'<([\w\s]+)>\s*([\s\S]*?)\s*</\1>'
+        matches2 = re.findall(pattern2, explanation, re.DOTALL)
+
+        # Combine matches from both patterns
+        all_matches = matches1 + matches2
+
+        for field_name, field_content in all_matches:
+            # Clean up field name and content
+            field_name = field_name.strip()
+            field_content = field_content.strip()
+
+            # Only process non-empty fields
+            if field_name and field_content:
+                field_map[field_name] = field_content
+        return field_map
+
+    def update_note_result(self, note, explanation: str):
+        """Handles a single AI response, updating the table and optionally auto-saving."""
+        auto_send = self.manager.config.get("AUTO_SEND_TO_CARD", True)
+        
+        if self.multi_field_mode:
+            # Find the generated row (even rows) for this note
+            for row in range(0, self.table.rowCount(), 2):
+                progress_item = self.table.item(row, 0)
+                if progress_item and progress_item.data(Qt.ItemDataRole.UserRole) == note.id:
+                    progress_item.setText("100%")
+                    self.table.item(row, 1).setText(explanation) # Generated content in column 1
+                    logger.info(f"Multi-field: Stored raw explanation for note {note.id}.")
+                    break
+        else: # Single-field mode
+            for row in range(self.table.rowCount()):
+                original_item = self.table.item(row, 1)
+                if original_item and original_item.data(Qt.ItemDataRole.UserRole) == note.id:
+                    self.table.item(row, 0).setText("100%")
+                    self.table.item(row, 2).setText(explanation) # Generated content in column 2
+
+                    if auto_send:
+                        output_field = self.output_field_combo.currentText().strip()
+                        append_mode = self.manager.config.get("APPEND_OUTPUT", False)
+                        logger.info(f"Single-field: Auto-sending to note {note.id} in {'append' if append_mode else 'replace'} mode.")
+                        
+                        if append_mode:
+                            original_field_text = note[output_field]
+                            note[output_field] = (original_field_text + "\n\n" + explanation) if original_field_text else explanation
+                        else:
+                            note[output_field] = explanation
+                        
+                        try:
+                            mw.col.update_note(note)
+                            logger.info(f"Successfully auto-updated note {note.id}")
+                        except Exception as e:
+                            logger.exception(f"Error auto-updating note {note.id}: {e}")
+                    else:
+                        logger.info(f"Single-field: Auto-send is off for note {note.id}.")
+                    break
+
     def stop_processing(self):
         if self.worker:
             self.worker.cancel()
@@ -1042,63 +1266,138 @@ class UpdateOmniPromptDialog(QDialog):
     def _generate_with_progress(self, prompt, stream_progress_callback=None):
         return self.manager.generate_ai_response(prompt, stream_progress_callback)
 
-    def update_progress_cell(self, row_index: int, pct: int):
+    def update_progress_cell(self, note_index: int, pct: int):
+        # In multi-field mode, progress is on the 'generated' row (even rows)
+        row_index = note_index * 2 if self.multi_field_mode else note_index
         item = self.table.item(row_index, 0)
         if item:
             item.setText(f"{pct}%")
 
-    def update_note_result(self, note, explanation: str):
-        output_field = self.output_field_combo.currentText().strip()
-        for row in range(self.table.rowCount()):
-            original_item = self.table.item(row, 1)
-            if original_item and original_item.data(Qt.ItemDataRole.UserRole) == note.id:
-                # 100%
-                self.table.item(row, 0).setText("100%")
-                
-                append_mode = self.manager.config.get("APPEND_OUTPUT", False)
-                logger.info(f"Processing note {note.id} in {'append' if append_mode else 'replace'} mode")
-                
-                if append_mode:
-                    existing_text = self.table.item(row, 2).text()
-                    new_table_text = existing_text + "\n\n" + explanation if existing_text else explanation
-                    self.table.item(row, 2).setText(new_table_text)
+    def save_manual_edits(self):
+        """Saves the current content from the table cells to the Anki notes."""
+        if self.multi_field_mode:
+            # Iterate through the generated rows (even-numbered) to get new data
+            for row in range(0, self.table.rowCount(), 2):
+                progress_item = self.table.item(row, 0)
+                if not progress_item: continue
 
-                    original_field_text = note[output_field]
-                    new_field_text = original_field_text + "\n\n" + explanation if original_field_text else explanation
-                    note[output_field] = new_field_text
-                else:
-                    self.table.item(row, 2).setText(explanation)
-                    note[output_field] = explanation
+                note_id = progress_item.data(Qt.ItemDataRole.UserRole)
+                note = mw.col.get_note(note_id)
 
+                # Update each detected field (starting from column 2)
+                for col, field_name in enumerate(self.auto_detect_fields, start=2):
+                    if col < self.table.columnCount():
+                        item = self.table.item(row, col)
+                        if item and field_name in note:
+                            note[field_name] = item.text()
+                
                 try:
                     mw.col.update_note(note)
-                    logger.info(f"Successfully updated note {note.id}")
+                    logger.info(f"Successfully saved multi-field edits for note {note_id}")
                 except Exception as e:
-                    logger.exception(f"Error updating note {note.id}: {e}")
-                break
+                    logger.exception(f"Error saving manual multi-field edit for note {note_id}: {e}")
+            safe_show_info("All multi-field edits saved to notes.")
+        else:
+            # Original single-field save logic
+            output_field = self.output_field_combo.currentText().strip()
+            if not output_field:
+                safe_show_info("Please select an output field to save changes.")
+                return
 
-    def save_manual_edits(self):
-        output_field = self.output_field_combo.currentText().strip()
-        for row in range(self.table.rowCount()):
-            original_item = self.table.item(row, 1)
-            if not original_item:
-                continue
-            generated_item = self.table.item(row, 2)
-            note_id = original_item.data(Qt.ItemDataRole.UserRole)
-            note = mw.col.get_note(note_id)
-            new_text = generated_item.text()
-            try:
-                note[output_field] = new_text
-                mw.col.update_note(note)
-            except Exception as e:
-                logger.exception(f"Error saving manual edit for note {note_id}: {e}")
+            for row in range(self.table.rowCount()):
+                original_item = self.table.item(row, 1)
+                if not original_item: continue
 
-        safe_show_info("Manual edits saved.")
+                note_id = original_item.data(Qt.ItemDataRole.UserRole)
+                note = mw.col.get_note(note_id)
+                new_text = self.table.item(row, 2).text()
+
+                try:
+                    note[output_field] = new_text
+                    mw.col.update_note(note)
+                    logger.info(f"Successfully saved single-field edit for note {note_id}")
+                except Exception as e:
+                    logger.exception(f"Error saving manual single-field edit for note {note_id}: {e}")
+            safe_show_info("All single-field edits saved to notes.")
+
 
     def processing_finished(self, processed: int, total: int, error_count: int):
-        safe_show_info(f"Processing finished: {processed}/{total} notes processed with {error_count} errors.")
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
+
+        auto_send = self.manager.config.get("AUTO_SEND_TO_CARD", True)
+        
+        # In multi-field mode, parse all results now that they are complete
+        if self.multi_field_mode:
+            self.parse_fields_for_all_rows(save_to_notes=auto_send)
+            if auto_send:
+                safe_show_info("Processing finished. Multi-field data has been automatically sent to cards.")
+            else:
+                safe_show_info("Processing finished. Press 'Send Data To Card' to save changes.")
+        else: # Single-field mode
+            message = f"Processing finished. Processed: {processed}/{total} notes."
+            if error_count > 0:
+                message += f" Errors: {error_count}."
+            if not auto_send:
+                message += " Press 'Send Data To Card' to save changes."
+            safe_show_info(message)
+
+
+    def parse_fields_for_all_rows(self, save_to_notes: bool = False):
+        """Parse generated text for all notes into fields, updating the table layout.
+        If save_to_notes is True, also saves changes to the Anki notes.
+        """
+        if not self.multi_field_mode:
+            return
+
+        # 1. Collect field maps and all unique field names from 'Generated' rows
+        all_fields = set()
+        note_field_maps = []
+        for row in range(0, self.table.rowCount(), 2):
+            explanation = self.table.item(row, 1).text() if self.table.item(row, 1) else ""
+            field_map = self.parse_multi_field_output(explanation)
+            note_field_maps.append(field_map)
+            all_fields.update(field_map.keys())
+
+        # 2. Update table structure with the detected fields
+        self.auto_detect_fields = sorted(list(all_fields))
+        new_column_count = 2 + len(self.auto_detect_fields)
+        self.table.setColumnCount(new_column_count)
+        self.table.setHorizontalHeaderLabels(["Progress", "Generated"] + self.auto_detect_fields)
+
+        # 3. Populate all rows (generated and original) with data
+        for i, field_map in enumerate(note_field_maps):
+            gen_row, orig_row = i * 2, i * 2 + 1
+            progress_item = self.table.item(gen_row, 0)
+            if not progress_item: continue
+            
+            note_id = progress_item.data(Qt.ItemDataRole.UserRole)
+            note = mw.col.get_note(note_id)
+
+            # Ensure the 'Original' label spans the new column count correctly
+            self.table.setSpan(orig_row, 0, 1, 2)
+
+            for col_idx, field_name in enumerate(self.auto_detect_fields):
+                target_col = 2 + col_idx
+
+                # Populate generated row with parsed content
+                self.table.setItem(gen_row, target_col, QTableWidgetItem(field_map.get(field_name, "")))
+                
+                # Populate original row with content from the note
+                original_content = note[field_name] if field_name in note else ""
+                self.table.setItem(orig_row, target_col, QTableWidgetItem(original_content))
+
+            # 4. Conditionally save the new content to the Anki note
+            if save_to_notes:
+                for field_name, content in field_map.items():
+                    if field_name in note:
+                        note[field_name] = content
+                try:
+                    mw.col.update_note(note)
+                    logger.info(f"Auto-saved multi-field content for note {note_id}")
+                except Exception as e:
+                    logger.exception(f"Error auto-saving multi-field note {note_id}: {e}")
+
 
 # ----------------------------------------------------------------
 # ManagePromptsDialog
@@ -1114,39 +1413,39 @@ class ManagePromptsDialog(QDialog):
     def init_ui(self):
         # Main splitter layout
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        
+
         # Left panel - prompt list
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
-        
+
         self.prompt_list = QListWidget()
         self.prompt_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
         self.prompt_list.itemSelectionChanged.connect(self.update_preview)
         left_layout.addWidget(QLabel("Saved Prompts:"))
         left_layout.addWidget(self.prompt_list)
-        
+
         # Right panel - preview
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
-        
+
         self.preview_name = QLabel("Select a prompt to preview")
         self.preview_name.setStyleSheet("font-weight: bold; font-size: 14px;")
         right_layout.addWidget(self.preview_name)
-        
+
         self.preview_content = QTextEdit()
         self.preview_content.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
         right_layout.addWidget(QLabel("Prompt Content:"))
         right_layout.addWidget(self.preview_content)
-        
+
         self.field_info = QLabel()
         right_layout.addWidget(QLabel("Field Mapping:"))
         right_layout.addWidget(self.field_info)
-        
+
         # Add panels to splitter
         splitter.addWidget(left_panel)
         splitter.addWidget(right_panel)
         splitter.setSizes([250, 350])
-        
+
         # Buttons
         btn_layout = QHBoxLayout()
         self.save_button = QPushButton("Save Changes")
@@ -1158,7 +1457,7 @@ class ManagePromptsDialog(QDialog):
         btn_layout.addWidget(self.save_button)
         btn_layout.addWidget(self.delete_button)
         btn_layout.addWidget(self.cancel_button)
-        
+
         # Main layout
         main_layout = QVBoxLayout(self)
         main_layout.addWidget(splitter)
@@ -1177,14 +1476,14 @@ class ManagePromptsDialog(QDialog):
             self.preview_content.clear()
             self.field_info.clear()
             return
-            
+
         prompt_name = selected[0].text()
         prompts = load_prompt_templates()
         prompt_settings = load_prompt_settings()
-        
+
         self.preview_name.setText(f"Preview: {prompt_name}")
         self.preview_content.setPlainText(prompts.get(prompt_name, ""))
-        
+
         # Show field mapping if exists
         field = prompt_settings.get(prompt_name, {}).get("outputField", "Not set")
         self.field_info.setText(f"Output field: {field}")
@@ -1193,10 +1492,10 @@ class ManagePromptsDialog(QDialog):
         selected_items = self.prompt_list.selectedItems()
         if not selected_items:
             return
-            
+
         prompt_name = selected_items[0].text()
         new_content = self.preview_content.toPlainText()
-        
+
         prompts = load_prompt_templates()
         if prompt_name in prompts:
             prompts[prompt_name] = new_content
@@ -1214,7 +1513,7 @@ class ManagePromptsDialog(QDialog):
         msg = QMessageBox(self)
         msg.setIcon(QMessageBox.Icon.Warning)
         msg.setWindowTitle("Confirm Deletion")
-        
+
         if len(selected_items) == 1:
             prompt_name = selected_items[0].text()
             content = load_prompt_templates().get(prompt_name, "")
@@ -1233,7 +1532,7 @@ class ManagePromptsDialog(QDialog):
 
         prompts = load_prompt_templates()
         prompt_settings = load_prompt_settings()
-        
+
         deleted_count = 0
         for item in selected_items:
             prompt_name = item.text()
@@ -1242,7 +1541,7 @@ class ManagePromptsDialog(QDialog):
                 deleted_count += 1
             if prompt_name in prompt_settings:
                 del prompt_settings[prompt_name]
-        
+
         save_prompt_templates(prompts)
         save_prompt_settings(prompt_settings)
         self.load_prompts()
@@ -1259,7 +1558,7 @@ class AboutDialog(QDialog):
         layout = QVBoxLayout(self)
         about_text = (
             "<h2>OmniPrompt Anki Add‑on</h2>"
-            "<p>Version: 1.1.4</p>"
+            "<p>Version: 1.1.5</p>"
             "<p><a href='https://ankiweb.net/shared/review/1383162606'>Rate add-on on AnkiWeb</a></p>"
             "<p>For documentation, visit:</p>"
             "<p><a href='https://github.com/stanamosov/omniprompt-anki'>GitHub Repo</a></p>"
