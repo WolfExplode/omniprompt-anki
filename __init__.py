@@ -862,6 +862,8 @@ class UpdateOmniPromptDialog(QDialog):
         self.notes = notes
         self.manager = manager
         self.worker = None
+        self.setMinimumSize(800, 600)  # Set your desired minimum width and height
+        # You could also use self.resize(800, 600) if you want it to open at a fixed size
         self.setup_ui()
 
         self.setWindowModality(Qt.WindowModality.NonModal)
@@ -925,6 +927,7 @@ class UpdateOmniPromptDialog(QDialog):
 
         # Start / Stop / Save Edits
         self.start_button = QPushButton("Start")
+        self.start_button.setMinimumSize(80, 30)  # Make it slightly bigger
         self.stop_button = QPushButton("Stop")
         self.stop_button.setEnabled(False)
         self.save_changes_button = QPushButton("Send Data To Card")
@@ -939,6 +942,14 @@ class UpdateOmniPromptDialog(QDialog):
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(["Progress", "Original", "Generated"])
         self.table.horizontalHeader().setStretchLastSection(True)
+
+        # Increase default row height
+        self.table.verticalHeader().setDefaultSectionSize(35) # Default is around 25-30
+        # Increase default column width for better horizontal spacing
+        self.table.horizontalHeader().setDefaultSectionSize(150) # Adjust as needed
+        # You can also set a minimum section size for more consistent spacing
+        self.table.horizontalHeader().setMinimumSectionSize(100)
+        self.table.verticalHeader().setMinimumSectionSize(30)
         main_layout.addWidget(self.table, 3)
 
         self.setLayout(main_layout)
