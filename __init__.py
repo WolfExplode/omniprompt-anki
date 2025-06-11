@@ -62,10 +62,11 @@ DEFAULT_CONFIG = {
     },
     "DEEPSEEK_STREAM": False,
     "APPEND_OUTPUT": False,
-    "DEBUG_MODE": True,      # Show processing popups when enabled
-    "FILTER_MODE": False,     # Skip notes where output field is filled
+    "DEBUG_MODE": True,         # Show processing popups when enabled
+    "FILTER_MODE": False,       # Skip notes where output field is filled
     "MULTI_FIELD_MODE": False,
-    "AUTO_SEND_TO_CARD": True # New config key for auto-sending data
+    "AUTO_SEND_TO_CARD": True,
+    "LAST_USED_PROMPT": ""
 }
 
 CONFIG_SCHEMA = {
@@ -90,7 +91,8 @@ CONFIG_SCHEMA = {
         "DEBUG_MODE": {"type": "boolean"},
         "FILTER_MODE": {"type": "boolean"},
         "MULTI_FIELD_MODE": {"type": "boolean"},
-        "AUTO_SEND_TO_CARD": {"type": "boolean"}, # Add to schema
+        "AUTO_SEND_TO_CARD": {"type": "boolean"},
+        "LAST_USED_PROMPT": {"type": "string"},
         "SELECTED_FIELDS": {
             "type": "object",
             "properties": {
@@ -862,7 +864,7 @@ class UpdateOmniPromptDialog(QDialog):
         self.notes = notes
         self.manager = manager
         self.worker = None
-        self.setMinimumSize(800, 600)  # Set your desired minimum width and height
+        self.setMinimumSize(800, 600)  # width and height
         # You could also use self.resize(800, 600) if you want it to open at a fixed size
         self.setup_ui()
 
@@ -961,7 +963,15 @@ class UpdateOmniPromptDialog(QDialog):
         self.save_changes_button.clicked.connect(self.save_manual_edits)
 
         self.load_prompts()
-        if self.prompt_combo.currentText():
+
+        # Load the last used prompt from config
+        last_used_prompt = self.manager.config.get("LAST_USED_PROMPT", "")
+        if last_used_prompt and last_used_prompt in load_prompt_templates():
+            self.prompt_combo.setCurrentText(last_used_prompt)
+            self.load_selected_prompt(last_used_prompt)
+        elif self.prompt_combo.count() > 0:
+            # If no last used prompt or it's not found, load the first one if available
+            self.prompt_combo.setCurrentIndex(0)
             self.load_selected_prompt(self.prompt_combo.currentText())
         self.prompt_combo.currentTextChanged.connect(self.load_selected_prompt)
 
@@ -1183,9 +1193,15 @@ class UpdateOmniPromptDialog(QDialog):
                 self.table.setItem(row, 1, original_item)
                 self.table.setItem(row, 2, QTableWidgetItem(""))
 
+        # Save the current prompt as the last used prompt
+        current_prompt_name = self.prompt_combo.currentText().strip()
+        if current_prompt_name:
+            self.manager.config["LAST_USED_PROMPT"] = current_prompt_name
+            self.manager.save_config()
+            logger.info(f"Saved '{current_prompt_name}' as last used prompt.")
+
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
-
         self.worker = NoteProcessingWorker(note_prompts, self._generate_with_progress)
         self.worker.progress_update.connect(self.update_progress_cell, Qt.ConnectionType.QueuedConnection)
         self.worker.note_result.connect(self.update_note_result, Qt.ConnectionType.QueuedConnection)
