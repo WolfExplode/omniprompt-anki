@@ -10,7 +10,7 @@ What are synonyms for this French word "{French Word}". Answer with list of syno
 [[[Formatting]]]
 Format this text "{Explanation}" in markdown. Answer with formatted text only, do not add any comments.
 
-[[Contextual Word Explanation with Example and Mnemonic]]
+[[[Contextual Word Explanation with Example and Mnemonic]]]
 Explain the word "{Word}" in simple language.
 Then provide:
 - A list of 3 synonyms.
