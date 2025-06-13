@@ -1246,6 +1246,26 @@ class UpdateOmniPromptDialog(QDialog):
                     progress_item.setText("100%")
                     self.table.item(row, 1).setText(explanation) # Generated content in column 1
                     logger.info(f"Multi-field: Stored raw explanation for note {note.id}.")
+
+                    # If auto-send is on, parse and save the note immediately.
+                    if auto_send:
+                        logger.info(f"Multi-field: Auto-sending to note {note.id}.")
+                        field_map = self.parse_multi_field_output(explanation)
+                        
+                        changes_made = False
+                        for field_name, content in field_map.items():
+                            if field_name in note and note[field_name] != content:
+                                note[field_name] = content
+                                changes_made = True
+
+                        if changes_made:
+                            try:
+                                mw.col.update_note(note)
+                                logger.info(f"Successfully auto-updated multi-field note {note.id}")
+                            except Exception as e:
+                                logger.exception(f"Error auto-updating multi-field note {note.id}: {e}")
+                        else:
+                            logger.info(f"No new content to update for multi-field note {note.id}")
                     break
         else: # Single-field mode
             for row in range(self.table.rowCount()):
@@ -1343,9 +1363,11 @@ class UpdateOmniPromptDialog(QDialog):
 
         auto_send = self.manager.config.get("AUTO_SEND_TO_CARD", True)
         
-        # In multi-field mode, parse all results now that they are complete
+        # In multi-field mode, parse all results now that they are complete to update the UI
         if self.multi_field_mode:
-            self.parse_fields_for_all_rows(save_to_notes=auto_send)
+            # Pass save_to_notes=False because if auto_send was on, notes are already saved.
+            # If auto_send was off, they shouldn't be saved here anyway until the user clicks the button.
+            self.parse_fields_for_all_rows(save_to_notes=False)
             if auto_send:
                 safe_show_info("Processing finished. Multi-field data has been automatically sent to cards.")
             else:
