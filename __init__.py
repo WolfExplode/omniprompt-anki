@@ -887,45 +887,70 @@ class SettingsDialog(QDialog):
 
         return self.config
 
+    def get_current_model_for_provider(self, provider):
+        """Get the current model for a provider from config"""
+        provider_model_map = {
+            "openai": "OPENAI_MODEL",
+            "deepseek": "DEEPSEEK_MODEL", 
+            "gemini": "GEMINI_MODEL",
+            "anthropic": "ANTHROPIC_MODEL",
+            "xai": "XAI_MODEL",
+            "ollama": "OLLAMA_MODEL",
+            "lmstudio": "LMSTUDIO_MODEL"
+        }
+        config_key = provider_model_map.get(provider)
+        if config_key and self.config:
+            return self.config.get(config_key, "")
+        return ""
+
     def update_model_options(self):
         provider = self.provider_combo.currentText()
         self.model_combo.clear()
+        
+        # Default models for each provider
+        default_models = []
         if provider == "openai":
-            self.model_combo.addItems(
-                ["gpt-4o-mini", "gpt-3.5-turbo", "gpt-4o", "o3-mini", "o1-mini"]
-            )
+            default_models = ["gpt-4o-mini", "gpt-3.5-turbo", "gpt-4o", "o3-mini", "o1-mini"]
         elif provider == "deepseek":
-            self.model_combo.addItems(["deepseek-chat", "deepseek-reasoner"])
+            default_models = ["deepseek-chat", "deepseek-reasoner"]
         elif provider == "gemini":
-            self.model_combo.addItems(["gemini-pro", "gemini-1.5-pro", "gemini-flash"])
+            default_models = ["gemini-pro", "gemini-1.5-pro", "gemini-flash"]
         elif provider == "anthropic":
-            self.model_combo.addItems(
-                [
-                    "claude-opus-4-latest",
-                    "claude-sonnet-4-latest",
-                    "claude-haiku-3.5-latest",
-                ]
-            )
+            default_models = [
+                "claude-opus-4-latest",
+                "claude-sonnet-4-latest",
+                "claude-haiku-3.5-latest",
+            ]
         elif provider == "xai":
-            self.model_combo.addItems(["grok-3-latest", "grok-3-mini-latest"])
+            default_models = ["grok-3-latest", "grok-3-mini-latest"]
         elif provider == "ollama":
-            self.model_combo.addItems(
-                [
-                    "llama3.2",
-                    "llama3.1",
-                    "llama2",
-                    "mistral",
-                    "mixtral",
-                    "codellama",
-                    "phi",
-                    "gemma",
-                    "qwen2.5",
-                ]
-            )
-            self.model_combo.setEditable(True)  # Allow custom model names
+            default_models = [
+                "llama3.2",
+                "llama3.1",
+                "llama2",
+                "mistral",
+                "mixtral",
+                "codellama",
+                "phi",
+                "gemma",
+                "qwen2.5",
+            ]
         elif provider == "lmstudio":
-            self.model_combo.addItems(["local-model"])
-            self.model_combo.setEditable(True)  # Allow custom model names
+            default_models = ["local-model"]
+        
+        # Add default models
+        if default_models:
+            self.model_combo.addItems(default_models)
+        
+        # Get current model from config for this provider
+        current_model = self.get_current_model_for_provider(provider)
+        
+        # Add current model if it's not already in the list
+        if current_model and current_model not in default_models:
+            self.model_combo.addItem(current_model)
+        
+        # Make combobox editable for ALL providers
+        self.model_combo.setEditable(True)
         self.show_provider_key()
 
     def show_provider_key(self):
