@@ -79,6 +79,15 @@ DEFAULT_CONFIG = {
         # "anthropic": "...",
         # "xai": "..."
     },
+    "CUSTOM_MODELS": {
+        "openai": [],
+        "deepseek": [],
+        "gemini": [],
+        "anthropic": [],
+        "xai": [],
+        "ollama": [],
+        "lmstudio": []
+    },
     "TEMPERATURE": 0.2,
     "MAX_TOKENS": 500,
     "API_DELAY": 2,  # Delay (seconds) between API calls
@@ -91,6 +100,9 @@ DEFAULT_CONFIG = {
     "FILTER_MODE": False,  # Skip notes where output field is filled
     "MULTI_FIELD_MODE": False,
     "AUTO_SEND_TO_CARD": True,  # New config key for auto-sending data
+    # New GPT-5.4 specific parameters
+    "OPENAI_REASONING_EFFORT": "none",  # none, low, medium, high, xhigh
+    "OPENAI_VERBOSITY": "medium",  # low, medium, high
 }
 
 CONFIG_SCHEMA = {
@@ -108,6 +120,7 @@ CONFIG_SCHEMA = {
         "OLLAMA_BASE_URL": {"type": "string"},
         "LMSTUDIO_BASE_URL": {"type": "string"},
         "API_KEYS": {"type": "object"},
+        "CUSTOM_MODELS": {"type": "object"},
         "TEMPERATURE": {"type": "number"},
         "MAX_TOKENS": {"type": "integer"},
         "API_DELAY": {"type": "number"},
@@ -119,6 +132,8 @@ CONFIG_SCHEMA = {
         "FILTER_MODE": {"type": "boolean"},
         "MULTI_FIELD_MODE": {"type": "boolean"},
         "AUTO_SEND_TO_CARD": {"type": "boolean"},  # Add to schema
+        "OPENAI_REASONING_EFFORT": {"enum": ["none", "low", "medium", "high", "xhigh"]},
+        "OPENAI_VERBOSITY": {"enum": ["low", "medium", "high"]},
         "SELECTED_FIELDS": {
             "type": "object",
             "properties": {"output_field": {"type": "string"}},
@@ -344,19 +359,23 @@ class OmniPromptManager:
         return self.migrate_config(validated)
 
     def migrate_config(self, config: dict) -> dict:
-        """You can simplify or remove if you don't need to handle older versions."""
-        current_version = config.get("_version", 0)
-        if current_version < 1.0:
-            logger.info(f"Config too old (v{current_version}). Forcing reset.")
-            return DEFAULT_CONFIG.copy()
+            current_version = config.get("_version", 0)
+            
+            if current_version < 1.0:
+                logger.info(f"Config too old (v{current_version}). Forcing reset.")
+                return DEFAULT_CONFIG.copy()
 
-        # Combine defaults
-        merged = DEFAULT_CONFIG.copy()
-        merged.update(config)
-        # Bump version if needed
-        if merged["_version"] < 1.1:
-            merged["_version"] = 1.1
-        return merged
+            # Migrate from 1.1 to 1.2
+            if current_version < 1.2:
+                config["OPENAI_REASONING_EFFORT"] = "none"
+                config["OPENAI_VERBOSITY"] = "medium"
+                config["_version"] = 1.2
+
+            # Combine defaults
+            merged = DEFAULT_CONFIG.copy()
+            merged.update(config)
+            
+            return merged
 
     def validate_config(self, config: dict) -> dict:
         try:
@@ -518,23 +537,179 @@ class OmniPromptManager:
             return f"[Error: {str(e)}]"
 
     def _make_openai_request(self, prompt: str, stream_callback=None) -> str:
-        api_key = self.config.get("API_KEYS", {}).get("openai", "")
-        if not api_key:
-            return "[Error: No OpenAI key found]"
+            api_key = self.config.get("API_KEYS", {}).get("openai", "")
+            if not api_key:
+                return "[Error: No OpenAI key found]"
 
-        model = self.config.get("OPENAI_MODEL", "gpt-4o-mini")
+            model = self.config.get("OPENAI_MODEL", "gpt-4o-mini")
+            
+            # Check if using GPT-5 model family (new API endpoint)
+            # Valid GPT-5.4 models from the documentation
+            gpt5_models = ["gpt-5.4", "gpt-5.4-pro", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5"]
+            if any(model == m or model.startswith(f"{m}-") for m in gpt5_models):
+                logger.info(f"Using GPT-5 API for model: {model}")
+                return self._make_gpt5_request(prompt, model, api_key, stream_callback)
+            else:
+                # Use legacy API for older models
+                logger.info(f"Using legacy API for model: {model}")
+                return self._make_legacy_openai_request(prompt, model, api_key, stream_callback)
+
+    def _make_gpt5_request(self, prompt: str, model: str, api_key: str, stream_callback=None) -> str:
+            """Make request using the new Responses API for GPT-5 models"""
+            url = "https://api.openai.com/v1/responses"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            }
+            
+            # Get reasoning effort from config, default to "none"
+            reasoning_effort = self.config.get("OPENAI_REASONING_EFFORT", "none")
+            
+            # Validate reasoning effort
+            valid_reasoning_efforts = ["none", "low", "medium", "high", "xhigh"]
+            if reasoning_effort not in valid_reasoning_efforts:
+                logger.warning(f"Invalid reasoning effort '{reasoning_effort}', defaulting to 'none'")
+                reasoning_effort = "none"
+            
+            # Build request data for GPT-5.4
+            # According to the OpenAI docs example, input can be a string
+            data = {
+                "model": model,
+                "input": prompt,  # Just a string, not an array
+                "max_output_tokens": self.config.get("MAX_TOKENS", 500),
+            }
+            
+            # Handle parameters based on reasoning effort
+            # GPT-5.4 models don't support temperature parameter
+            if reasoning_effort != "none":
+                # When reasoning effort is not "none", we use reasoning effort
+                data["reasoning"] = {"effort": reasoning_effort}
+                logger.info(f"Using reasoning.effort={reasoning_effort}")
+            # Note: We don't add temperature at all for GPT-5.4 models
+            
+            # Add verbosity if specified (and not "medium")
+            verbosity = self.config.get("OPENAI_VERBOSITY", "medium")
+            valid_verbosity_levels = ["low", "medium", "high"]
+            if verbosity in valid_verbosity_levels and verbosity != "medium":
+                data["text"] = {"verbosity": verbosity}
+                logger.info(f"Using text.verbosity={verbosity}")
+            
+            logger.info(f"Sending GPT-5 request to model: {model}")
+            return self._send_gpt5_request(url, headers, data, stream_callback)
+
+    def _make_legacy_openai_request(self, prompt: str, model: str, api_key: str, stream_callback=None) -> str:
+        """Make request using legacy Chat Completions API for older models"""
         url = "https://api.openai.com/v1/chat/completions"
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
         }
+        
         data = {
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": self.config["MAX_TOKENS"],
-            "temperature": self.config["TEMPERATURE"],
+            "max_tokens": self.config.get("MAX_TOKENS", 500),
+            "temperature": self.config.get("TEMPERATURE", 0.2),
         }
+        
         return self._send_request(url, headers, data)
+
+    def _send_gpt5_request(self, url: str, headers: dict, data: dict, stream_callback=None) -> str:
+            """Send request to GPT-5 Responses API"""
+            retries = 3
+            backoff_factor = 2
+            timeout_val = self.config.get("TIMEOUT", 20)
+            
+            if not check_internet():
+                return "[Error: no internet connection]"
+            
+            for attempt in range(retries):
+                try:
+                    # Log request for debugging (without sensitive data)
+                    debug_data = data.copy()
+                    logger.info(f"GPT-5 request attempt {attempt+1}/{retries}")
+                    logger.debug(f"Request data: {debug_data}")
+                    
+                    resp = requests.post(
+                        url, headers=headers, json=data, timeout=timeout_val
+                    )
+                    
+                    # Check for HTTP errors
+                    if resp.status_code != 200:
+                        error_msg = f"HTTP {resp.status_code}: {resp.text}"
+                        logger.error(f"GPT-5 API error: {error_msg}")
+                        
+                        # Try to parse OpenAI error message
+                        try:
+                            error_json = resp.json()
+                            if "error" in error_json:
+                                error_detail = error_json["error"]
+                                if "message" in error_detail:
+                                    error_message = error_detail['message']
+                                    return f"[Error: OpenAI API - {error_message}]"
+                        except:
+                            pass
+                        
+                        return f"[Error: OpenAI API - {error_msg}]"
+                    
+                    # Get and log the raw response
+                    raw_response = resp.text
+                    logger.debug(f"RAW RESPONSE (full): {raw_response}")
+                    
+                    # Try to parse as JSON
+                    try:
+                        resp_json = resp.json()
+                        logger.debug(f"Parsed JSON response type: {type(resp_json)}")
+                        logger.debug(f"Parsed JSON response keys: {list(resp_json.keys()) if isinstance(resp_json, dict) else 'Not a dict'}")
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Failed to parse response as JSON: {e}")
+                        logger.error(f"Raw response was: {raw_response}")
+                        # If it's not JSON, return the raw text
+                        return raw_response.strip()
+                    
+                    time.sleep(self.config.get("API_DELAY", 1))
+                    
+                    # Parse the response
+                    result = self._parse_gpt5_response(resp_json)
+                    logger.info(f"GPT-5 response parsed successfully, length: {len(result)}")
+                    logger.debug(f"Parsed result: {result}")
+                    return result
+                    
+                except requests.exceptions.Timeout:
+                    logger.warning(f"Timeout. Retrying {attempt+1}/{retries}...")
+                    time.sleep(backoff_factor * (attempt + 1))
+                except Exception as e:
+                    logger.exception(f"GPT-5 API error on attempt {attempt+1}:")
+                    if attempt == retries - 1:  # Last attempt
+                        return f"[Error: {str(e)}]"
+                    time.sleep(backoff_factor * (attempt + 1))
+            
+            return "[Error: request failed after retries]"
+    
+    def _parse_gpt5_response(self, resp_json):
+            """Parse GPT-5.4 response format - ULTRA SIMPLE VERSION"""
+            logger.debug(f"GPT-5 response type: {type(resp_json)}")
+            logger.debug(f"GPT-5 response: {resp_json}")
+            
+            # Convert to string first to handle all cases
+            response_str = str(resp_json)
+            
+            # Look for the text field using regex
+            import re
+            
+            # Pattern to match: text': '...' or text": "..." 
+            # This handles both single and double quotes
+            pattern = r"(?:'text'|\"text\")\s*:\s*['\"]([^'\"]*)['\"]"
+            
+            match = re.search(pattern, response_str)
+            if match:
+                text = match.group(1)
+                logger.debug(f"Extracted text: {text}")
+                return text.strip()
+            
+            # If no match, return the original string
+            logger.warning(f"No 'text' field found in response: {response_str[:100]}...")
+            return response_str.strip()
 
     def _make_deepseek_request(self, prompt: str, stream_callback=None) -> str:
         api_key = self.config.get("API_KEYS", {}).get("deepseek", "")
@@ -758,8 +933,19 @@ class SettingsDialog(QDialog):
         provider_layout.addWidget(self.provider_combo)
 
         self.model_combo = QComboBox()
-        provider_layout.addWidget(QLabel("Model:"))
-        provider_layout.addWidget(self.model_combo)
+        
+        # "+" button for adding custom models
+        self.add_custom_model_button = QPushButton("+")
+        self.add_custom_model_button.setToolTip("Add current model as custom model")
+        self.add_custom_model_button.clicked.connect(self.add_custom_model)
+        
+        # Horizontal layout for model selection
+        model_layout = QHBoxLayout()
+        model_layout.addWidget(QLabel("Model:"))
+        model_layout.addWidget(self.model_combo)
+        model_layout.addWidget(self.add_custom_model_button)
+        
+        provider_layout.addLayout(model_layout)
 
         provider_group.setLayout(provider_layout)
         layout.addWidget(provider_group)
@@ -910,7 +1096,12 @@ class SettingsDialog(QDialog):
         # Default models for each provider
         default_models = []
         if provider == "openai":
-            default_models = ["gpt-4o-mini", "gpt-3.5-turbo", "gpt-4o", "o3-mini", "o1-mini"]
+            default_models = [
+                "gpt-4o-mini", "gpt-3.5-turbo", "gpt-4o", 
+                "gpt-5.4", "gpt-5.4-pro", "gpt-5.4-mini", "gpt-5.4-nano",
+                "gpt-5",  # Generic GPT-5
+                "o3-mini", "o1-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"
+            ]  # <-- ADDED THIS CLOSING BRACKET
         elif provider == "deepseek":
             default_models = ["deepseek-chat", "deepseek-reasoner"]
         elif provider == "gemini":
@@ -942,16 +1133,65 @@ class SettingsDialog(QDialog):
         if default_models:
             self.model_combo.addItems(default_models)
         
+        # Add custom models for this provider (excluding duplicates)
+        custom_models = self.config.get("CUSTOM_MODELS", {}).get(provider, [])
+        for model in custom_models:
+            if model not in default_models:
+                self.model_combo.addItem(model)
+        
         # Get current model from config for this provider
         current_model = self.get_current_model_for_provider(provider)
         
         # Add current model if it's not already in the list
-        if current_model and current_model not in default_models:
+        if current_model and current_model not in default_models and current_model not in custom_models:
             self.model_combo.addItem(current_model)
         
         # Make combobox editable for ALL providers
         self.model_combo.setEditable(True)
         self.show_provider_key()
+
+    def add_custom_model(self):
+        """Add current model to custom models list for the current provider"""
+        provider = self.provider_combo.currentText()
+        model_name = self.model_combo.currentText().strip()
+        
+        if not model_name:
+            safe_show_info("Model name cannot be empty.")
+            return
+            
+        # Ensure CUSTOM_MODELS exists in config
+        if "CUSTOM_MODELS" not in self.config:
+            self.config["CUSTOM_MODELS"] = {
+                "openai": [],
+                "deepseek": [],
+                "gemini": [],
+                "anthropic": [],
+                "xai": [],
+                "ollama": [],
+                "lmstudio": []
+            }
+        
+        # Get custom models for this provider
+        custom_models = self.config["CUSTOM_MODELS"].get(provider, [])
+        
+        # Check if model already exists
+        if model_name in custom_models:
+            safe_show_info(f"Model '{model_name}' is already in custom models.")
+            return
+            
+        # Add to custom models
+        custom_models.append(model_name)
+        self.config["CUSTOM_MODELS"][provider] = custom_models
+        
+        # Update the combobox to include the new model
+        if model_name not in [self.model_combo.itemText(i) for i in range(self.model_combo.count())]:
+            self.model_combo.addItem(model_name)
+        
+        # Show confirmation
+        safe_show_info(f"Added '{model_name}' to custom models for {provider}.")
+        
+        # Set the combobox to the newly added model
+        self.model_combo.setCurrentText(model_name)
 
     def show_provider_key(self):
         provider = self.provider_combo.currentText()
@@ -1003,8 +1243,6 @@ class SettingsDialog(QDialog):
 # AdvancedSettingsDialog
 # ----------------------------------------------------------------
 class AdvancedSettingsDialog(QDialog):
-    """No append/replace. Just API_DELAY, TIMEOUT, DEEPSEEK_STREAM."""
-
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Advanced Settings")
@@ -1037,6 +1275,22 @@ class AdvancedSettingsDialog(QDialog):
             self.deepseek_stream_combo.setCurrentText("False")
         form_layout.addRow("DeepSeek Streaming:", self.deepseek_stream_combo)
 
+        # OpenAI GPT-5+ Reasoning Effort (only for OpenAI provider)
+        self.reasoning_effort_combo = QComboBox()
+        self.reasoning_effort_combo.addItems(["none", "low", "medium", "high", "xhigh"])
+        self.reasoning_effort_combo.setCurrentText(
+            self.config.get("OPENAI_REASONING_EFFORT", "none")
+        )
+        form_layout.addRow("OpenAI Reasoning Effort:", self.reasoning_effort_combo)
+
+        # OpenAI GPT-5+ Verbosity
+        self.verbosity_combo = QComboBox()
+        self.verbosity_combo.addItems(["low", "medium", "high"])
+        self.verbosity_combo.setCurrentText(
+            self.config.get("OPENAI_VERBOSITY", "medium")
+        )
+        form_layout.addRow("OpenAI Verbosity:", self.verbosity_combo)
+
         layout.addLayout(form_layout)
 
         # Buttons
@@ -1064,10 +1318,11 @@ class AdvancedSettingsDialog(QDialog):
         self.config["DEEPSEEK_STREAM"] = (
             self.deepseek_stream_combo.currentText() == "True"
         )
+        self.config["OPENAI_REASONING_EFFORT"] = self.reasoning_effort_combo.currentText()
+        self.config["OPENAI_VERBOSITY"] = self.verbosity_combo.currentText()
 
         omni_prompt_manager.save_config()
         super().accept()
-
 
 # ----------------------------------------------------------------
 # UpdateOmniPromptDialog
