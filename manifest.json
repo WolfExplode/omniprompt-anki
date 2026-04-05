@@ -1,7 +1,7 @@
 {
   "name": "OmniPrompt-Anki",
-  "version": "1.1.4",
-  "description": "Your AI Anki assistant! OmniPrompt-Anki enhances your flashcards with AI-powered generation. Supports both OpenAI and DeepSeek providers.",
+  "version": "1.1.5",
+  "description": "Your AI Anki assistant! OmniPrompt-Anki enhances your flashcards with AI-powered generation. Supports many providers such as OpenAI, Anthropic, DeepSeek, xAI and local (Ollama, LM Studio).",
   "author": "Stanislav Amosov",
   "min_point_version": "24.11",
   "max_point_version": "",
